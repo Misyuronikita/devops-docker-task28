@@ -1,3 +1,5 @@
+# Official requirements for running application
+
 ## Platform
 * `php >= 7.2` (served best with `FPM`)
 * `MySQL` database backend
@@ -43,3 +45,5 @@ $ php artisan polls:collect:status
 # Running unit tests
 $ php vendor/bin/phpunit -c phpunit.xml 
 ```
+---
+# Task 28. Compose. Запуск compose со сборкой образа
