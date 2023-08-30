@@ -26,6 +26,7 @@ services:
       interval: 30s
       timeout: 30s
       retries: 5
+    
 
   mysql:
     image: mysql:5.7
@@ -41,3 +42,42 @@ services:
   redis:
     image: redis:7.2.0
     restart: unless-stopped
+
+  fluentd: 
+    build: ./fluentd
+    image: fluent:own
+    container_name: Fluent
+    links:
+      - elasticsearch
+    depends_on:
+      - elasticsearch
+    ports:
+      - 24224:24224
+      - 24224:24224/udp
+
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    container_name: ESearch
+    expose:
+      - 9200
+    environment:
+      - discovery.type=single-node 
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: kibana:7.17.0
+    container_name: Kibana
+    links:
+      - elasticsearch
+    depends_on:
+      - elasticsearch
+    ports:
+      - 5601:5601
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+
+networks:
+  app-network:
+volumes:
+  esdata:

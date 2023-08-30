@@ -46,112 +46,11 @@ $ php artisan polls:collect:status
 $ php vendor/bin/phpunit -c phpunit.xml 
 ```
 ---
-# Task 28. Compose. Запуск compose со сборкой образа
-
-## <center>Checkpoints</center>
-
-#### 1. Склонируй репозиторий voting в свой аккаунт на devops-gitlab.inno.ws с именем dkr-30-voting.
-
-#### 2. Напиши docker-compose.yml файл, который бы собирал приложение, запускал его и все требуемые зависимости:
-
-- nginx - проксирует запросы на voting и доступен на хосте на порту 20000. Пример конфигурационного файла находится в папке nginx, смонтируй его в /etc/nginx/conf.d/default.conf. Используй alpine-версию образа.
-
-- voting - собирается из репозитория;
-
-- mysql - база данных, к которой подключается voting;
-
-- redis - In-memory хранилище для кэша;
-
-#### 3. Запусти сервис с именем проекта inno30.
-
-#### 4. Сконфигурируй приложение, выполнив команды из раздела Migration и Seeding в README репозитория.
-
-#### 5. Обратись к сервису по localhost:20000/polls (в ответе ты должен увидеть json-объект).
-
-#### 6. Загрузи новые файлы в репозиторий
-
-## <center>Accomplishment</center>
-### 1. The first step is cloning [voting](https://devops-gitlab.inno.ws/devops-board/dkr-30) repository in our repository:
-    git clone ssh://git@devops-gitlab.inno.ws:54042/devops-board/dkr-30.git
-
-### 2. Then we have to write docker-compose.yml file using above circumstances:
-```
-version: '3'
-services:
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "20000:80"
-    volumes:
-      - "~/DockerTasks/task28/dkr-30/nginx/default.conf:/etc/nginx/conf.d/default.conf"
-    restart: unless-stopped
-    depends_on:
-      - voting 
-
-  voting:
-    build: ./
-    ports:
-      - "9000:9000"
-    env_file:
-      - .env
-    restart: unless-stopped
-    depends_on:
-      - mysql
-      - redis
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/ping"]
-      interval: 30s
-      timeout: 30s
-      retries: 5
-
-  mysql:
-    image: mysql:5.7
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_DATABASE: voting
-      MYSQL_PASSWORD: voting
-      MYSQL_USER: voting
-      MYSQL_ROOT_PASSWORD: root
-    restart: unless-stopped
-    
-  redis:
-    image: redis:7.2.0
-    restart: unless-stopped
-```
-### There are some important stuff: we need to rename [.env.dist](https://devops-gitlab.inno.ws/devops-board/dkr-30/-/blob/master/.env.dist) to `.env`. Other files we haven't to touch!
-
-### 3. Well, let's run our container:
-    docker-compose -p inno30 up --force-recreate
-
-### 4. Then we need to make migraions and seed data inside container:
-    docker exec -ti inno30_voting_1 sh
-### Let's check the commands which describes into REDAME.md. There are we have two commands that we need to wrirte inside of container:
-    php artisan migrate --force
-
-    php artisan db:seed --force
-
-![no_image](images/screen1.png)
-
-### 5. Now we have to make sure that our application is working. I use Postman for check this cases:
-![no_image](images/screen2.png)
-
-### 6. Finally load our changes in our remote repository using these commands:
-    git init 
-
-    git add .
-
-    git commit -m "feat: deploy backend laravel application"
-
-    git remote add origin git@github.com:Misyuronikita/devops-docker-task28.git
-
-    git push -u origin master
-
 
 # Task 29 Compose. Хранение логов в EFK
 
 ## <center>Checkpoints</center>
+
 #### 1. В репозитории из предыдущего задания создайте новую ветку с именем dkr-31-voting-efk.
 
 #### 2. Измените docker-compose.yml файл, добавив следующее:
@@ -175,3 +74,156 @@ services:
 #### 11. Загрузите новую ветку с изменениями в репозиторий.
 
 ## <center>Выполнение</center>
+### 1. Создадим новую ветку в директории, в которой находится проект с прошлого задания:
+    git checkout -b dkr-31-voting-efk
+
+### 2. Теперь изменим наш docker-compose.yml файл:
+#### Добавим EFK stack в наш docker-compose.yml файл:
+
+```
+...
+  fluentd: 
+    build: ./fluentd
+    image: fluent:own
+    container_name: Fluent
+    links:
+      - elasticsearch
+    depends_on:
+      - elasticsearch
+    ports:
+      - 24224:24224
+      - 24224:24224/udp
+
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    container_name: ESearch
+    expose:
+      - 9200
+    environment:
+      - discovery.type=single-node 
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: kibana:7.17.0
+    container_name: Kibana
+    links:
+      - elasticsearch
+    depends_on:
+      - elasticsearch
+    ports:
+      - 5601:5601
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+
+networks:
+  app-network:
+volumes:
+  esdata:
+
+```
+
+#### Опишем Dockerfile для fluentd. Создадим директорию fluentd и положим туда это:
+```
+FROM fluentd:v1.14-1
+
+USER root
+
+RUN apk add --no-cache --update --virtual .build-deps \
+        sudo build-base ruby-dev \
+&& gem uninstall -I elasticsearch \
+&& gem install elasticsearch -v 7.17.0 \
+&& sudo gem install fluent-plugin-elasticsearch \
+&& sudo gem sources --clear-all \
+&& apk del .build-deps \
+&& rm -rf /tmp/* /var/tmp/* /usr/lib/ruby/gems/*/cache/*.gem
+
+COPY ./conf/fluent.conf /fluentd/etc/
+COPY entrypoint.sh /bin/
+
+RUN chmod +x /bin/entrypoint.sh
+
+USER fluent
+```
+#### Затем в ту же папку необходимо добавить определенный скрипт, который используется для работы с конфигурацией логов:
+```
+#!/bin/sh
+
+#source vars if file exists
+DEFAULT=/etc/default/fluentd
+
+if [ -r $DEFAULT ]; then
+    set -o allexport
+    . $DEFAULT
+    set +o allexport
+fi
+
+# If the user has supplied only arguments append them to `fluentd` command 
+if [ "${1#-}" != "$1" ]; then
+    set -- fluentd "$@"
+fi
+
+# If user does not supply config file or plugins, use the default 
+if [ "$1" = "fluentd" ]; then
+    if ! echo $@ | grep -e ' \-c' -e ' \-\-config' ; then
+      set -- "$@" --config /fluentd/etc/${FLUENTD_CONF}
+    fi
+
+    if ! echo $@ | grep -e ' \-p' -e ' \-\-plugin' ; then
+      set -- "$@" --plugin /fluentd/plugins
+    fi
+fi
+
+exec "$@"
+```
+#### В директории fluentd необходимо создать еще одну директориюю /conf и туда положить файлик конфигурации fluent.conf
+```
+<source>
+  @type forward
+  port 24224
+  bind 0.0.0.0
+</source>
+
+<match *.**>
+  @type copy
+  <store>
+    @type elasticsearch
+    host elasticsearch
+    port 9200
+    logstash_format true
+    logstash_prefix fluentd
+    logstash_dateformat %Y%m%d
+    include_tag_key true
+    type_name access_log
+    tag_key @log_name
+    flush_interval 300s
+  </store>
+  <store>
+    @type stdout
+  </store>
+</match>
+```
+
+#### В общем и целом древо директорий выглядит следующим образом:
+![no_image](images/screen3.png)
+
+### Далее запустим наш docker-compose файл с именем проекта rbm31:
+    docker-compose -p rbm31 up --force-recreate
+
+### Зайдем внутрь контейнера с приложением voting:
+    docker exec -ti rbm31_voting_1 sh
+
+### И выполним там миграции и посев данных:
+    php artisan migrate --force
+    php artisan db:seed --force
+
+### Видим, что наше приложение работает:
+![no_image](images/screen2.png)
+
+### Далее необходимо обратиться на порт 5601 и создать index с именем fluent*. Вот готовый результат:
+![no_image](images/screen4.png)
+
+### Далее всё запушим в нашу ветку:
+    git add .
+    git commit -m "feat: accomplish task"
+    git push
